@@ -168,7 +168,7 @@ def strainsAtRebars(df_sigma,t,Ec,d_top,v=0.15,d_bottom=None,k_kappa_T=2):
     return df_epsilon
 
 
-def Sr_max(df_epsilon,phi,cc,d_top,k1=0.8,k3=3.4,k4=0.425,d_bottom=None):
+def Sr_max(df_epsilon,t,phi,cc,d_top,k1=0.8,k3=3.4,k4=0.425,d_bottom=None):
     """
     This function should be adapted to different reinforcement in different direction. For now, it does not.
 
@@ -181,7 +181,18 @@ def Sr_max(df_epsilon,phi,cc,d_top,k1=0.8,k3=3.4,k4=0.425,d_bottom=None):
     """
 
     df_epsilon['As_top']=phi**2/4*math.pi*1000/cc
-    f_epsilon['As_bottom']=phi**2/4*math.pi*1000/cc
+    df_epsilon['As_bottom']=phi**2/4*math.pi*1000/cc
+
+
+    df_epsilon['a_dist_top']=t-d_top #a better formula could be (cx+phi_x_ekv/2)*cos(theta)**2+(cy+phi_y_ekv/2)*sin(theta)**2
+    df_epsilon['a_dist_bottom']=t-d_bottom
+
+    # Building dataframe to get hef for each element
+    hef_dict = {'hef1_top':2.5*df_epsilon['a_dist_top']}
+
+    df_hef=[2.5*df_epsilon['a_dist_top'],]
+    df_epsilon['hc_ef_top']=df_hef.min(axis=1)
+
     print(df_epsilon)
 
     return None
