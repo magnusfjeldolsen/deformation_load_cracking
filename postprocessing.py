@@ -8,6 +8,9 @@ Shells, Stresses, bottom
 """
 import pandas as pd
 import openpyxl
+import math
+
+### NB, should operate with stresses in coordinate system because pricipal stresses may have different direction at top and bottom! ###
 
 def getLoadCaseName(xlsx_path,sheet):
     #Get name of load case from cell A1 in FEM-design export
@@ -89,7 +92,6 @@ def getTopBottomShellStressesDataFrame(xlsx_path,n_largest=1):
     sigma_top_list=[]
     sigma_bottom_list=[]
     
-
     for sheet in pd_xlsx.sheet_names:
         df_sheet = pd.ExcelFile.parse(pd_xlsx,sheet,skiprows=1)
         
@@ -107,27 +109,25 @@ def getTopBottomShellStressesDataFrame(xlsx_path,n_largest=1):
 
     df_sigma_top = pd.concat(sigma_top_list,ignore_index=True,sort=False)
     df_sigma_top=df_sigma_top.rename(columns={"Sigma 1":"sigma_1_top","Sigma 2":"sigma_2_top","alpha":"alpha_top"})
-    print("df_sigma_top")
-    print(df_sigma_top)
-
+    
     df_sigma_bottom = pd.concat(sigma_bottom_list,ignore_index=True,sort=False)
     df_sigma_bottom=df_sigma_bottom.rename(columns={"Sigma 1":"sigma_1_bottom","Sigma 2":"sigma_2_bottom","alpha":"alpha_bottom"})
 
     #merging dataframes
-    common_columns_top_bottom = list(set(df_sigma_top.columns) & set(df_sigma_bottom.columns))
-    df_sigma = pd.merge(df_sigma_top,df_sigma_bottom,on=["Elem"].append(common_columns_top_bottom.remove("Elem")))
+    common_columns_top_bottom = list(set(df_sigma_top.columns).union(set(df_sigma_bottom.columns)))
 
-    #Removing rows where Sigma 1 is not a number
-    df_sigma = df_sigma[pd.to_numeric(df_sigma["sigma_1_bottom"], errors = "coerce").notnull()]
-
-    #keeping only necessary columns
-    df_sigma = df_sigma[['Shell', 'Elem', 'Node', 'load_case','sigma_1_top', 'sigma_2_top', 'alpha_top','sigma_1_bottom', 'sigma_2_bottom', 'alpha_bottom']]
+    # print(common_columns_top_bottom)
+    df_sigma = pd.merge(df_sigma_top,df_sigma_bottom,on=["Elem"]).append(common_columns_top_bottom.remove("Elem"))
+    
+    # #Removing rows where Sigma 1 is not a number
+    df_sigma_temp = df_sigma[pd.to_numeric(df_sigma["sigma_1_bottom"], errors = "coerce").notnull()]
+    
+    # #keeping only necessary columns
+    df_sigma=pd.DataFrame(columns=['Shell', 'Elem', 'Node', 'load_case','sigma_1_top', 'sigma_2_top', 'alpha_top','sigma_1_bottom', 'sigma_2_bottom', 'alpha_bottom'])
+    df_sigma[['Shell', 'Elem', 'Node', 'load_case','sigma_1_top', 'sigma_2_top', 'alpha_top','sigma_1_bottom', 'sigma_2_bottom', 'alpha_bottom']]=\
+        df_sigma_temp[['Shell_x', 'Elem', 'Node_x', 'load_case_x','sigma_1_top', 'sigma_2_top', 'alpha_top','sigma_1_bottom', 'sigma_2_bottom', 'alpha_bottom']]
 
     return df_sigma
-
-
-        
-
 
 def strainsAtRebars(df_sigma,t,Ec,d_top,v=0.15,d_bottom=None,k_kappa_T=2):
     """Converts linearly elastic stresses to strains
@@ -144,40 +144,67 @@ def strainsAtRebars(df_sigma,t,Ec,d_top,v=0.15,d_bottom=None,k_kappa_T=2):
     """
     if d_bottom == None:
         d_bottom = d_top
-    print("print(df_sigma.head())")
-    print(df_sigma.head())
+   
     #Curvatures after cracking, including k_kappa_T
     df_sigma['kappa_1_T']=(df_sigma['sigma_1_top']-df_sigma['sigma_1_bottom'])/t*k_kappa_T
     df_sigma['kappa_2_T']=(df_sigma['sigma_2_top']-df_sigma['sigma_2_bottom'])/t*k_kappa_T
 
-    
     #Average stress in plate:
     df_sigma['sigma_1_mid']=(df_sigma['sigma_1_top']+df_sigma['sigma_1_bottom'])/2
     df_sigma['sigma_2_mid']=(df_sigma['sigma_2_top']+df_sigma['sigma_2_bottom'])/2
 
-    #Distance from surface to center of rebars:
+    #Linear elastic plate stress at rebar layers
     
-    #df_sigma['sigma_1_top_at_rebars']=df_sigma['sig']
+    df_sigma['sigma_1_top_at_rebars']=df_sigma['sigma_1_mid']+df_sigma['kappa_1_T']*(d_top-t/2)
+    df_sigma['sigma_1_bottom_at_rebars']=df_sigma['sigma_1_mid']+df_sigma['kappa_1_T']*-(d_top-t/2)
+
+    df_sigma['sigma_2_top_at_rebars']=df_sigma['sigma_2_mid']+df_sigma['kappa_2_T']*(d_top-t/2)
+    df_sigma['sigma_2_bottom_at_rebars']=df_sigma['sigma_2_mid']+df_sigma['kappa_2_T']*-(d_top-t/2)
+
+    df_epsilon=pd.DataFrame(columns=['epsilon_1_top','epsilon_1_bottom'])
+    df_epsilon['epsilon_1_top']=(df_sigma['sigma_1_top_at_rebars']-v*df_sigma['sigma_2_top_at_rebars'])
+    df_epsilon['epsilon_1_bottom']=(df_sigma['sigma_1_bottom_at_rebars']-v*df_sigma['sigma_2_bottom_at_rebars'])
     
+    return df_epsilon
 
 
-    return df_sigma
+def Sr_max(df_epsilon,phi,cc,d_top,k1=0.8,k3=3.4,k4=0.425,d_bottom=None):
+    """
+    This function should be adapted to different reinforcement in different direction. For now, it does not.
 
+    df_epsilon: dataframe containing epsilon_1_top and epsilon_1_bottom
+    phi: rebar diameter [mm]
+    c: rebar cover
 
+    d_top: d_eff for outer and innter reinforcement layer at top face
+    d_bottom: d_eff for outer and innter reinforcement layer at bottom face
+    """
 
+    df_epsilon['As_top']=phi**2/4*math.pi*1000/cc
+    f_epsilon['As_bottom']=phi**2/4*math.pi*1000/cc
+    print(df_epsilon)
+
+    return None
 
 xlsx_path = "FD_STRESSES.xlsx"
 
-#Getting stresses
+# #Getting stresses
 df_sigma = getTopBottomShellStressesDataFrame(xlsx_path,n_largest=1)
-print(df_sigma)
 
-#Getting strains at rebars from stresses
+#Getting stresses at rebars from stresses
 
 t=300
 Ec=30000
 d_top = t-45-16
-df_sigma_rebars = strainsAtRebars(df_sigma,t,Ec,d_top,v=0.15,d_bottom=None,k_kappa_T=2)
+df_epsilon = strainsAtRebars(df_sigma,t,Ec,d_top,v=0.15,d_bottom=None,k_kappa_T=2)
+
+phi=16
+cc=200
+
+Srmax=Sr_max(df_epsilon,phi,cc,d_top)
+print(Srmax)
+
+
 
 
 
